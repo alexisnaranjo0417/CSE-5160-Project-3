@@ -1,0 +1,229 @@
+import os
+import tensorflow as tf
+from tensorflow.keras import layers, models
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix, classification_report
+
+
+
+
+# 1. Load the dataset
+data_dir = 'chest_xray' # Folder contains train/val/test
+img_size = (224, 224)
+batch_size = 32
+
+
+
+
+print('Loading Training Data')
+train_dataset = tf.keras.utils.image_dataset_from_directory(
+   os.path.join(data_dir, 'train'),
+   image_size=img_size,
+   batch_size=batch_size,
+   label_mode='binary',    # 0 is Normal and 1 is Pneumonia
+   shuffle=True
+)
+
+
+print('Loading Validation Data')
+val_dataset = tf.keras.utils.image_dataset_from_directory(
+   os.path.join(data_dir, 'val'),
+   image_size=img_size,
+   batch_size=batch_size,
+   label_mode='binary',
+   shuffle=False
+)
+
+
+print('Loading Test Data')
+test_dataset = tf.keras.utils.image_dataset_from_directory(
+   os.path.join(data_dir, 'test'),
+   image_size=img_size,
+   batch_size=batch_size,
+   label_mode='binary',
+   shuffle=False       # Important: it keeps order for evaluation
+)
+
+
+# Get class names (Normal and Pneumonia)
+class_names = train_dataset.class_names
+print(f'Classes found: {class_names}')
+
+
+# Visualize data
+plt.figure(figsize=(10, 10))
+for images, labels in train_dataset.take(1):
+   for i in range(9):
+       ax = plt.subplot(3, 3, i+1)
+       plt.imshow(images[i].numpy().astype("uint8"))
+       plt.title(class_names[int(labels[i])])
+       plt.axis("off")
+plt.show()
+
+
+
+
+# 3. Define the Deep Convolutional Neural Network (CNN) (3+ Hidden Layers)
+model_a = models.Sequential()
+model_b = models.Sequential()
+
+
+# Rescaling Layer
+model_a.add(layers.Rescaling(1./255, input_shape=(224, 224, 3)))
+model_b.add(layers.Rescaling(1./255, input_shape=(224, 224, 3)))
+
+
+# Hidden Layer 1
+model_a.add(layers.Conv2D(32, (3, 3), activation='relu'))
+model_a.add(layers.MaxPooling2D((2, 2)))
+model_b.add(layers.Conv2D(32, (3, 3), activation='relu'))
+model_b.add(layers.MaxPooling2D((2, 2)))
+
+# Hidden Layer 2
+model_a.add(layers.Conv2D(64, (3, 3), activation='relu'))
+model_a.add(layers.MaxPooling2D((2, 2)))
+model_b.add(layers.Conv2D(64, (3, 3), activation='relu'))
+model_b.add(layers.MaxPooling2D((2, 2)))
+
+# Hidden Layer 3  (Deep Network is when you have 3+ hidden layers)
+model_a.add(layers.Conv2D(128, (3, 3), activation='relu'))
+model_a.add(layers.MaxPooling2D((2, 2)))
+model_b.add(layers.Conv2D(128, (3, 3), activation='relu'))
+model_b.add(layers.MaxPooling2D((2, 2)))
+
+# Hidden Layer 4
+model_b.add(layers.Conv2D(256, (3, 3), activation='relu'))
+model_b.add(layers.MaxPooling2D((2, 2)))
+
+# Hidden Layer 5
+model_b.add(layers.Conv2D(512, (3, 3), activation='relu'))
+model_b.add(layers.MaxPooling2D((2, 2)))
+
+# Flatten Layer
+model_a.add(layers.Flatten())
+model_b.add(layers.Flatten())
+
+# Fully Connected Hidden Layer
+model_a.add(layers.Dense(64, activation='relu'))
+model_b.add(layers.Dense(64, activation='relu'))
+
+# Output layer with 1 neuron and sigmoid for binary classification
+model_a.add(layers.Dense(1, activation='sigmoid'))
+model_b.add(layers.Dense(1, activation='sigmoid'))
+
+model_a.summary()
+model_b.summary()
+
+
+
+# Compile the Model
+model_a.compile(optimizer='adam',
+             loss='binary_crossentropy',
+             metrics=['accuracy'])
+
+model_b.compile(optimizer='adam',
+             loss='binary_crossentropy',
+             metrics=['accuracy'])
+
+# Train the model
+print('\nStart Training')
+history_a = model_a.fit(train_dataset,
+                   epochs=10,  #No early stopping, training will run for all 10 epochs
+                   validation_data=val_dataset)
+
+history_b = model_b.fit(train_dataset,
+                   epochs=10,  #No early stopping, training will run for all 10 epochs
+                   validation_data=val_dataset)
+
+# Evaluate the model
+print('\nEvaluating Model A')
+test_loss, test_accuracy = model_a.evaluate(test_dataset)
+print(f'Test Loss: {test_loss}')
+print(f'Test Accuracy: {test_accuracy}')
+
+print('\nEvaluating Model B')
+test_loss, test_accuracy = model_b.evaluate(test_dataset)
+print(f'Test Loss: {test_loss}')
+print(f'Test Accuracy: {test_accuracy}')
+
+# Find the optimal number of epochs based solely on validation accuracy
+val_accuracy_a = history_a.history['val_accuracy']
+val_accuracy_b = history_b.history['val_accuracy']
+
+# Find the epoch with the maximum validation accuracy
+optimal_epoch_accuracy_a = np.argmax(val_accuracy_a) + 1    # Use numpy's argmax to find the best epoch
+print(f'Optimal number of epochs based on the maximum validation accuracy for model A: {optimal_epoch_accuracy_a}')
+
+optimal_epoch_accuracy_b = np.argmax(val_accuracy_b) + 1    # Use numpy's argmax to find the best epoch
+print(f'Optimal number of epochs based on the maximum validation accuracy for model B: {optimal_epoch_accuracy_b}')
+
+# Plot Performance metrics: loss and accuracy
+plt.figure(figsize=(12, 5))
+
+
+# Accuracy plot
+plt.subplot(2, 2, 1)
+plt.plot(history_a.history['accuracy'], label='Training Accuracy', marker='o')
+plt.plot(history_a.history['val_accuracy'], label='Validation Accuracy', marker='o')
+plt.title('Training and Validation Accuracy for Model A', fontsize=14, fontweight='bold')
+plt.xlabel('Epochs', fontsize=12)
+plt.ylabel('Accuracy', fontsize=12)
+plt.legend()
+
+plt.subplot(2, 2, 2)
+plt.plot(history_b.history['accuracy'], label='Training Accuracy', marker='o')
+plt.plot(history_b.history['val_accuracy'], label='Validation Accuracy', marker='o')
+plt.title('Training and Validation Accuracy for Model B', fontsize=14, fontweight='bold')
+plt.xlabel('Epochs', fontsize=12)
+plt.ylabel('Accuracy', fontsize=12)
+plt.legend()
+
+# Loss plot
+plt.subplot(2, 2, 3)
+plt.plot(history_a.history['loss'], label='Training Loss', marker='o')
+plt.plot(history_a.history['val_loss'], label='Validation Loss', marker='o')
+plt.title('Training and Validation Loss for Model A', fontsize=14, fontweight='bold')
+plt.xlabel('Epochs', fontsize=12)
+plt.ylabel('Loss', fontsize=12)
+plt.legend()
+
+plt.subplot(2, 2, 4)
+plt.plot(history_b.history['loss'], label='Training Loss', marker='o')
+plt.plot(history_b.history['val_loss'], label='Validation Loss', marker='o')
+plt.title('Training and Validation Loss for Model B', fontsize=14, fontweight='bold')
+plt.xlabel('Epochs', fontsize=12)
+plt.ylabel('Loss', fontsize=12)
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+# Model A evaluation
+y_true = np.concatenate([y for x, y in test_dataset], axis=0)
+
+y_pred_prob_a = model_a.predict(test_dataset)
+
+y_pred_a = (y_pred_prob_a > 0.5).astype("int32")
+
+cm_a = confusion_matrix(y_true, y_pred_a)
+print("\nConfusion Matrix:")
+print(cm_a)
+
+cr_a = classification_report(y_true, y_pred_a, target_names=class_names)
+print("\nClassification Report:")
+print(cr_a)
+
+
+# Model B evaluation
+y_pred_prob_b = model_b.predict(test_dataset)
+
+y_pred_b = (y_pred_prob_b > 0.5).astype("int32")
+
+cm_b = confusion_matrix(y_true, y_pred_b)
+print("\nConfusion Matrix Model A:")
+print(cm_b)
+
+cr_b = classification_report(y_true, y_pred_b, target_names=class_names)
+print("\nClassification Report Model B:")
+print(cr_b)
