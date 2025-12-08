@@ -4,8 +4,7 @@ from tensorflow.keras import layers, models
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import confusion_matrix, classification_report
-
-
+import seaborn as sns
 
 
 # 1. Load the dataset
@@ -16,33 +15,39 @@ batch_size = 32
 
 
 
-print('Loading Training Data')
+# Load Training Data (80% of data)
 train_dataset = tf.keras.utils.image_dataset_from_directory(
-   os.path.join(data_dir, 'train'),
-   image_size=img_size,
-   batch_size=batch_size,
-   label_mode='binary',    # 0 is Normal and 1 is Pneumonia
-   shuffle=True
+  os.path.join(data_dir, 'train'),
+  image_size=img_size,     # Resizes all the images to 224 x 224
+  batch_size=batch_size,   # Groups images into stacks of 32
+  label_mode='binary',     # Converts folder names to 0 and 1s
+  validation_split=0.2,    # Splits data into train/val
+  subset='training',
+  seed=123,                # Needed when using split
+  shuffle=True             # Randomizes order
 )
 
 
-print('Loading Validation Data')
+# Load Validation Data (20% of data)
 val_dataset = tf.keras.utils.image_dataset_from_directory(
-   os.path.join(data_dir, 'val'),
-   image_size=img_size,
-   batch_size=batch_size,
-   label_mode='binary',
-   shuffle=False
+  os.path.join(data_dir, 'train'), # Note: We load from 'train' folder again
+  image_size=img_size,
+  batch_size=batch_size,
+  label_mode='binary',
+  validation_split=0.2,
+  subset='validation',
+  seed=123,             # Must match the seed above!
+  shuffle=False
 )
 
 
 print('Loading Test Data')
 test_dataset = tf.keras.utils.image_dataset_from_directory(
-   os.path.join(data_dir, 'test'),
-   image_size=img_size,
-   batch_size=batch_size,
-   label_mode='binary',
-   shuffle=False       # Important: it keeps order for evaluation
+  os.path.join(data_dir, 'test'),
+  image_size=img_size,
+  batch_size=batch_size,
+  label_mode='binary',
+  shuffle=False       # Important: it keeps order for evaluation
 )
 
 
@@ -54,14 +59,21 @@ print(f'Classes found: {class_names}')
 # Visualize data
 plt.figure(figsize=(10, 10))
 for images, labels in train_dataset.take(1):
-   for i in range(9):
-       ax = plt.subplot(3, 3, i+1)
-       plt.imshow(images[i].numpy().astype("uint8"))
-       plt.title(class_names[int(labels[i])])
-       plt.axis("off")
+  for i in range(9):
+      ax = plt.subplot(3, 3, i+1)
+      plt.imshow(images[i].numpy().astype("uint8"))
+      plt.title(class_names[int(labels[i])])
+      plt.axis("off")
 plt.show()
 
 
+# Define Data Augmentation for Model B (This rotates/zooms images randomly during training)
+data_augmentation = tf.keras.Sequential([
+ layers.RandomFlip("horizontal"),
+ layers.RandomRotation(0.1), # Rotate by 10%
+ layers.RandomZoom(0.1),     # Zoom in/out by 10%
+ layers.RandomContrast(0.1), # Adjust contrast
+])
 
 
 # 3. Define the Deep Convolutional Neural Network (CNN) (3+ Hidden Layers)
@@ -69,7 +81,12 @@ model_a = models.Sequential()
 model_b = models.Sequential()
 
 
+# Add Augmentation to Model B
+model_b.add(data_augmentation)
+
+
 # Rescaling Layer
+# divides every pixel by 255 making the values into a range between 0 and 1 to help model learn faster
 model_a.add(layers.Rescaling(1./255, input_shape=(224, 224, 3)))
 model_b.add(layers.Rescaling(1./255, input_shape=(224, 224, 3)))
 
@@ -78,63 +95,93 @@ model_b.add(layers.Rescaling(1./255, input_shape=(224, 224, 3)))
 model_a.add(layers.Conv2D(32, (3, 3), activation='relu'))
 model_a.add(layers.MaxPooling2D((2, 2)))
 model_b.add(layers.Conv2D(32, (3, 3), activation='relu'))
+model_b.add(layers.BatchNormalization())
 model_b.add(layers.MaxPooling2D((2, 2)))
+
 
 # Hidden Layer 2
 model_a.add(layers.Conv2D(64, (3, 3), activation='relu'))
 model_a.add(layers.MaxPooling2D((2, 2)))
 model_b.add(layers.Conv2D(64, (3, 3), activation='relu'))
+model_b.add(layers.BatchNormalization())
 model_b.add(layers.MaxPooling2D((2, 2)))
+
 
 # Hidden Layer 3  (Deep Network is when you have 3+ hidden layers)
 model_a.add(layers.Conv2D(128, (3, 3), activation='relu'))
 model_a.add(layers.MaxPooling2D((2, 2)))
 model_b.add(layers.Conv2D(128, (3, 3), activation='relu'))
+model_b.add(layers.BatchNormalization())
 model_b.add(layers.MaxPooling2D((2, 2)))
+
 
 # Hidden Layer 4
 model_b.add(layers.Conv2D(256, (3, 3), activation='relu'))
+model_b.add(layers.BatchNormalization())
 model_b.add(layers.MaxPooling2D((2, 2)))
+
 
 # Hidden Layer 5
 model_b.add(layers.Conv2D(512, (3, 3), activation='relu'))
+model_b.add(layers.BatchNormalization())
 model_b.add(layers.MaxPooling2D((2, 2)))
+
 
 # Flatten Layer
 model_a.add(layers.Flatten())
 model_b.add(layers.Flatten())
 
+
+# Dropout for Model B (turns off 50% of neurons  so no single neuron becomes important)
+model_b.add(layers.Dropout(0.5))
+
+
 # Fully Connected Hidden Layer
 model_a.add(layers.Dense(64, activation='relu'))
 model_b.add(layers.Dense(64, activation='relu'))
+
 
 # Output layer with 1 neuron and sigmoid for binary classification
 model_a.add(layers.Dense(1, activation='sigmoid'))
 model_b.add(layers.Dense(1, activation='sigmoid'))
 
+
 model_a.summary()
+
+
+# (None, 224, 224, 3) means (Batch_Size, Height, Width, RGB_Channels)
+model_b.build((None, 224, 224, 3))
 model_b.summary()
 
 
 
 # Compile the Model
 model_a.compile(optimizer='adam',
-             loss='binary_crossentropy',
-             metrics=['accuracy'])
+            loss='binary_crossentropy',
+            metrics=['accuracy'])
 
 model_b.compile(optimizer='adam',
-             loss='binary_crossentropy',
-             metrics=['accuracy'])
+            loss='binary_crossentropy',
+            metrics=['accuracy'])
 
 # Train the model
 print('\nStart Training')
 history_a = model_a.fit(train_dataset,
-                   epochs=10,  #No early stopping, training will run for all 10 epochs
-                   validation_data=val_dataset)
+                  epochs=10,  #No early stopping, training will run for all 10 epochs
+                  validation_data=val_dataset)
+
+
+# 0 = Normal, 1 = Pneumonia
+# Trying to force model to learn Normal class better by adding class weights
+# Because previous Confusion Matrix predicted Pneumonia 561 times and Normal 63 times so its ignoring Normal cases and just predicting them as Pneumonia)
+# Changed from 3 to 5 to try making Normal(0) more important
+class_weight_settings = {0: 5.0, 1: 1.0}
+
 
 history_b = model_b.fit(train_dataset,
-                   epochs=10,  #No early stopping, training will run for all 10 epochs
-                   validation_data=val_dataset)
+                  epochs=10,  # Increased epochs because Augmentations make training harder/slower
+                  validation_data=val_dataset,
+                       class_weight=class_weight_settings)
 
 # Evaluate the model
 print('\nEvaluating Model A')
@@ -207,8 +254,14 @@ y_pred_prob_a = model_a.predict(test_dataset)
 y_pred_a = (y_pred_prob_a > 0.5).astype("int32")
 
 cm_a = confusion_matrix(y_true, y_pred_a)
-print("\nConfusion Matrix:")
+print("\nConfusion Matrix Model A:")
 print(cm_a)
+plt.figure(figsize=(10, 8))
+sns.heatmap(cm_a, annot=True, fmt='d', cmap='Blues')
+plt.title('Confusion Matrix: Baseline model', fontsize=14, fontweight='bold')
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.show()
 
 cr_a = classification_report(y_true, y_pred_a, target_names=class_names)
 print("\nClassification Report:")
@@ -218,11 +271,19 @@ print(cr_a)
 # Model B evaluation
 y_pred_prob_b = model_b.predict(test_dataset)
 
-y_pred_b = (y_pred_prob_b > 0.5).astype("int32")
+
+# Forces the model to be 70% sure before diagnosing. This range gave the most balanced results when diagnosing Normal and Pneumonia correctly. ( This will help reduce False positives (previous example 147 people falsely labeled sick at 50%))
+y_pred_b = (y_pred_prob_b > 0.7).astype("int32")
 
 cm_b = confusion_matrix(y_true, y_pred_b)
-print("\nConfusion Matrix Model A:")
+print("\nConfusion Matrix Model B:")
 print(cm_b)
+plt.figure(figsize=(10, 8))
+sns.heatmap(cm_b, annot=True, fmt='d', cmap='Blues')
+plt.title('Confusion Matrix: Advanced model', fontsize=14, fontweight='bold')
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.show()
 
 cr_b = classification_report(y_true, y_pred_b, target_names=class_names)
 print("\nClassification Report Model B:")
