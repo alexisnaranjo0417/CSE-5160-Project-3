@@ -1,2 +1,2 @@
-# CSE 5160 Project 3
+# Pneumonia X-Rays Classification – CNN Medical Imaging Model
 CNN classification of Pneumonia X-Rays
